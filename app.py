@@ -1,28 +1,26 @@
-import nltk
-nltk.download('stopwords')
+
 
 import streamlit as st
 import pickle
 import re
+import nltk
 from nltk.corpus import stopwords
 
-# 1. Setup Page Config
-st.set_page_config(page_title="AI Movie Critic", page_icon="🎬")
-
-# 2. Load the Model and Vectorizer
-@st.cache_resource
-def load_assets():
-    with open('movie_sentiment_model.pkl', 'rb') as f:
-        model = pickle.load(f)
-    with open('tfidf_vectorizer.pkl', 'rb') as f:
-        tfidf = pickle.load(f)
-    return model, tfidf
-
-model, tfidf = load_assets()
-
-# 3. Preprocessing Function (Must match your training code!)
+# Download NLTK data for deployment
+nltk.download('stopwords')
 stop_words = set(stopwords.words('english'))
 
+# --- 1. Load Assets ---
+@st.cache_resource
+def load_models():
+    tfidf = pickle.load(open('tfidf_vectorizer.pkl', 'rb'))
+    lr = pickle.load(open('lr_model.pkl', 'rb'))
+    nb = pickle.load(open('nb_model.pkl', 'rb'))
+    return tfidf, lr, nb
+
+tfidf, lr_model, nb_model = load_models()
+
+# --- 2. Preprocessing ---
 def preprocess_text(text):
     text = text.lower()
     text = re.sub(r'<br />', ' ', text)
@@ -31,34 +29,57 @@ def preprocess_text(text):
     filtered_words = [w for w in words if w not in stop_words]
     return " ".join(filtered_words)
 
-# 4. User Interface
-st.title("🎬 AI Movie Sentiment Analyzer")
-st.write("Enter a movie review below, and the AI will tell you if it's Positive or Negative.")
+# --- 3. UI Setup ---
+st.set_page_config(page_title="Sentiment Model Comparison", layout="wide")
+st.title("🎬 Movie Review Sentiment: Model Comparison")
+st.write("Enter a review below to see how **Logistic Regression** and **Naive Bayes** compare.")
 
-user_input = st.text_area("Write your review here...", height=150)
+# Input area
+user_input = st.text_area("Write your movie review here:", height=150)
 
-if st.button("Analyze Sentiment"):
+if st.button("Compare Models"):
     if user_input.strip():
-        # Step A: Preprocess
-        cleaned_text = preprocess_text(user_input)
+        # Process Input
+        cleaned = preprocess_text(user_input)
+        vectorized = tfidf.transform([cleaned])
         
-        # Step B: Vectorize (Transform only, do NOT fit)
-        vectorized_input = tfidf.transform([cleaned_text])
+        # Predictions
+        lr_pred = lr_model.predict(vectorized)[0]
+        nb_pred = nb_model.predict(vectorized)[0]
         
-        # Step C: Predict
-        prediction = model.predict(vectorized_input)[0]
-        probability = model.predict_proba(vectorized_input)[0]
+        lr_label = "Positive ✅" if lr_pred == 1 else "Negative ❌"
+        nb_label = "Positive ✅" if nb_pred == 1 else "Negative ❌"
+
+        # Display Side-by-Side
+        col1, col2 = st.columns(2)
         
-        # Step D: Display Results
-        if prediction == 1:
-            st.success(f"**Result: Positive Sentiment** ✅ (Confidence: {probability[1]:.2%})")
-            st.balloons()
+        with col1:
+            st.header("Logistic Regression")
+            st.metric("Sentiment", lr_label)
+            st.info("Accuracy: 89%")
+            
+        with col2:
+            st.header("Naive Bayes")
+            st.metric("Sentiment", nb_label)
+            st.info("Accuracy: 85%")
+
+        # Feedback if they disagree
+        if lr_pred != nb_pred:
+            st.warning("⚠️ The models disagree on this review! This often happens with sarcasm or complex language.")
         else:
-            st.error(f"**Result: Negative Sentiment** ❌ (Confidence: {probability[0]:.2%})")
+            st.success("🤝 Both models agree on this sentiment.")
             
     else:
-        st.warning("Please enter some text first!")
+        st.error("Please enter a review to analyze.")
 
-# 5. Sidebar Info
-st.sidebar.title("About the Model")
-st.sidebar.info("This app uses a Logistic Regression model trained on 50,000 IMDB reviews. It achieves 89% accuracy.")
+# --- 4. Sidebar Comparison Stats ---
+st.sidebar.title("Model Performance Report")
+st.sidebar.write("**Logistic Regression**")
+st.sidebar.progress(89)
+st.sidebar.write("**Naive Bayes**")
+st.sidebar.progress(85)
+st.sidebar.markdown("""
+---
+### Why the difference?
+Logistic Regression looks at the **weight** of words, while Naive Bayes looks at the **probability** of words appearing. Logistic Regression is generally better at handling the context of movie reviews.
+""")
